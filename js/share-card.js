@@ -4,7 +4,7 @@
 //   タイルは crossOrigin='anonymous' で読む（地理院タイルは Origin を付けてたずねると Access-Control-Allow-Origin: * を返す）
 //   読めないタイルが残ったら、町の点で日本の形をかんたんに描く（そのときは地図の出典の文字も入れない）
 //   Wikimedia の写真や Wikipedia の文は入れない（作者の表示が要るライセンスのため）。町の名前と数字だけ
-import { TILE_URL } from './config.js?v=0.1.1';
+import { TILE_URL } from './config.js?v=0.1.2';
 
 export const CARD_W = 1200;
 export const CARD_H = 630;
@@ -287,7 +287,7 @@ function drawPanel(ctx, info, meta) {
     // みんなの旅は今 ／ 何番目の町
     const lead = fitText(ctx, info.lead, 700, 28, 20, W * 0.55);
     drawText(ctx, info.lead, IN_X, 190, 700, lead, SUB, 'left', meta);
-    const nf = fitText(ctx, info.nth, 800, 22, 16, W * 0.42 - 32);
+    const nf = fitText(ctx, info.nth, 800, 22, 16, W - lead.width - 20 - 32); // 「9番目の町・2回目」も入るように、あいた幅いっぱいまで
     const pw = Math.ceil(nf.width) + 32;
     rr(ctx, IN_R - pw, 160, pw, 42, 21);
     ctx.fillStyle = ACCENT;

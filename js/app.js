@@ -1,11 +1,11 @@
 // ツギドコの画面
 //   ふつうの画面（スマホが主・PC は横ならび）と、配信の画面（?stream=1・16:9 の大きい表示）
-import { VERSION, T, loadPlaces, bitsFromB64, bitGet, bitSet, bitsNew, shareText, HASHTAG } from './shared/travel.js?v=0.1.1';
-import { PREFS, PREF_SHORT, PREF_COLOR, PREF_GRID, GRID_W, GRID_H } from './shared/prefs.js?v=0.1.1';
-import { TripMap, CAND_COLORS } from './map.js?v=0.1.1';
-import { Net } from './net.js?v=0.1.1';
-import { SHARE_URL, IS_PROD_PAGE } from './config.js?v=0.1.1';
-import { makeShareCard } from './share-card.js?v=0.1.1';
+import { VERSION, T, loadPlaces, bitsFromB64, bitGet, bitSet, bitsNew, shareText, HASHTAG } from './shared/travel.js?v=0.1.2';
+import { PREFS, PREF_SHORT, PREF_COLOR, PREF_GRID, GRID_W, GRID_H } from './shared/prefs.js?v=0.1.2';
+import { TripMap, CAND_COLORS } from './map.js?v=0.1.2';
+import { Net } from './net.js?v=0.1.2';
+import { SHARE_URL, IS_PROD_PAGE } from './config.js?v=0.1.2';
+import { makeShareCard } from './share-card.js?v=0.1.2';
 
 // ---------- 小さな道具 ----------
 
@@ -84,6 +84,7 @@ const S = {
   skew: 0, // サーバーの時計 − この端末の時計
   moving: false,
   firstVisit: false,
+  curN: 0, // いまの町に来た回数（サーバーから。0.1.1 のサーバーは送らないので 0）
   vid: LS.get('tg-vid') || '',
   shownSeq: -1, // 候補のカードを作った町の番号（同じ町では作りなおさない）
 };
@@ -128,9 +129,13 @@ function renderTown() {
   $('#town-name').textContent = p.name;
   const badges = $('#town-badges');
   badges.replaceChildren();
-  if (S.firstVisit && S.stops > 1) badges.append(el('span', { class: 'badge new', text: 'はじめての町' }));
-  if (S.leg && S.leg.kind !== 'jump') badges.append(el('span', { class: 'badge leg', text: `${S.leg.icon} ${S.leg.mode} ${num(S.leg.km)}km` }));
+  // 2番目の町から: はじめてなら「はじめての町」、2回目からは「N回目の訪問」（旅のはじまりの町は出さない）
+  const visits = S.curN || (S.firstVisit ? 1 : 0);
+  if (S.stops > 1 && visits === 1) badges.append(el('span', { class: 'badge new', text: 'はじめての町' }));
+  if (S.stops > 1 && visits >= 2) badges.append(el('span', { class: 'badge again', text: `${num(visits)}回目の訪問` }));
   badges.append(el('span', { class: 'badge nth', text: `${num(S.stops)}番目の町` }));
+  // 乗り物の札は長くなる（飛行機の「大館能代→沖永良部」など）ので最後に。短い2つが1行にならぶ（せまい画面で3行にしない）
+  if (S.leg && S.leg.kind !== 'jump') badges.append(el('span', { class: 'badge leg', text: `${legText(S.leg)} ${num(S.leg.km)}km` }));
   renderMedia();
 }
 
@@ -205,6 +210,8 @@ function renderCredit() {
 // ---------- 投票 ----------
 
 const KIND_TAG = { far: '遠出', island: '島へ', sea: '海をわたる' };
+// 乗り物の言い方（飛行機は「✈ 飛行機で（羽田→那覇）」）
+const legText = (leg) => `${leg.icon} ${leg.mode}${leg.via ? `（${leg.via}）` : ''}`;
 
 // 候補のカード（町が変わったときだけ作る。票の数は setCounts で書きかえるだけ）
 function renderCands() {
@@ -215,14 +222,16 @@ function renderCands() {
   box.replaceChildren(...S.cands.map((c, k) => {
     const p = S.P[c.i];
     const th = commonsThumb(p.img, 120);
-    const tag = KIND_TAG[c.kind];
+    const tag = c.kind === 'plane' ? c.via : KIND_TAG[c.kind]; // 飛行機は「羽田→那覇」
     const b = el('button', {
       class: `cand kind-${c.kind}`, type: 'button', 'data-k': k, style: `--c:${CAND_COLORS[k % CAND_COLORS.length]}`,
       'aria-label': `${k + 1}番 ${c.dir}の${p.prefName}${p.name}（${c.km}km）に投票`,
       onclick: () => castVote(k),
     },
     el('span', { class: 'num', text: String(k + 1) }),
-    el('span', { class: 'thumb' }, th ? el('img', { src: th, alt: '', loading: 'lazy', decoding: 'async', onerror: (e) => e.target.remove() }) : el('span', { class: 'th-kanji', text: p.name.slice(0, 1), style: `background:${PREF_COLOR[p.pref]}` })),
+    el('span', { class: 'thumb' }, th ? el('img', { src: th, alt: '', loading: 'lazy', decoding: 'async', onerror: (e) => e.target.remove() }) : el('span', { class: 'th-kanji', text: p.name.slice(0, 1), style: `background:${PREF_COLOR[p.pref]}` }),
+      // その町に来たことがあるか（写真の下に小さく。0.1.1 のサーバーは seen を送らないので出さない）
+      Number.isInteger(c.seen) ? el('span', { class: `seen${c.seen ? '' : ' first'}`, text: c.seen ? `${num(c.seen + 1)}回目` : 'はじめて' }) : null),
     el('span', { class: 'body' },
       el('span', { class: 'l1' }, el('span', { class: 'dir', text: c.dir }), el('b', { class: 'nm', text: p.name })),
       el('span', { class: 'l2' }, el('span', { class: 'pf', text: p.prefName }), el('span', { class: 'md', text: `${c.icon}${c.mode} ${num(c.km)}km` }), tag ? el('span', { class: 'tag', text: tag }) : null),
@@ -392,7 +401,8 @@ function cardInfo() {
     ...base,
     town: { name: p.name, pref: p.prefName, lat: p.lat, lng: p.lng },
     lead: 'みんなの旅は今',
-    nth: S.stops > 1 ? `${num(S.stops)}番目の町` : '旅のはじまり',
+    // 2回目からは「9番目の町・2回目」
+    nth: S.stops > 1 ? `${num(S.stops)}番目の町${S.curN >= 2 ? `・${num(S.curN)}回目` : ''}` : '旅のはじまり',
     stats: [
       { label: '旅の距離', value: bigKm(S.km), unit: 'km' },
       { label: 'めぐった市区町村', value: num(S.nVisited), unit: `/ ${num(S.P.length)}` },
@@ -539,6 +549,7 @@ function applySnap(m) {
   S.tally = m.tally || [];
   S.my = Number.isInteger(m.my) ? m.my : -1;
   S.n = m.n || 0;
+  S.curN = tr.curN || 0;
   if (m.wiki) S.wiki = m.wiki;
   if (!S.ready) {
     S.ready = true;
@@ -603,6 +614,7 @@ function applyMove(m) {
   S.nVisited = m.nVisited;
   S.prefN = m.prefN;
   S.n = m.n ?? S.n;
+  S.curN = m.curN || 0;
   bitSet(S.bits, m.to);
   S.diary.push(m.entry);
   if (S.diary.length > T.DIARY_N) S.diary.shift();
@@ -611,7 +623,7 @@ function applyMove(m) {
   S.firstVisit = first;
   $('#viewers').textContent = num(S.n);
   const why = m.leg?.kind === 'jump' ? '（手元のテスト用のジャンプ）' : total === 0 ? '（だれも投票しなかったので、くじで決めました）' : ties > 1 ? '（同じ票数だったので、くじで決めました）' : `（${total}票のうち${finalCounts[m.leg.pick]}票）`;
-  showBanner(`${m.leg.icon} ${m.leg.mode} ${to.name}へ（${num(m.leg.km)}km）`, why);
+  showBanner(`${legText(m.leg)} ${to.name}へ（${num(m.leg.km)}km）`, why);
   const ms = Math.max(0, m.arriveAt - now());
   S.arriving = () => arrive(to, first, newPref);
   tick();

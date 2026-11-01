@@ -1,7 +1,7 @@
 // 地図（Leaflet ＋ 国土地理院の淡色地図）
 //   旅人のバス・通ってきた線・行ったことのある町の点・次の候補の札をのせる
-import { TILE_URL, TILE_CREDIT } from './config.js?v=0.1.1';
-import { PREF_COLOR } from './shared/prefs.js?v=0.1.1';
+import { TILE_URL, TILE_CREDIT } from './config.js?v=0.1.2';
+import { PREF_COLOR } from './shared/prefs.js?v=0.1.2';
 
 const L = window.L;
 export const CAND_COLORS = ['#ef5a3c', '#2f7fe0', '#1f9d63', '#9254de'];
@@ -137,9 +137,9 @@ export class TripMap {
   }
 
   // いまの町と近くの候補が入るように寄る
-  //   遠出・島の候補まで入れると、近くの候補が1か所にかたまって見えないので、そちらは点線の向きだけ見せる
+  //   遠出・島・飛行機の候補まで入れると、近くの候補が1か所にかたまって見えないので、そちらは点線の向きだけ見せる
   frame(here, cands, P, animate = true) {
-    const nearOnes = cands.filter((c) => c.kind !== 'far' && c.kind !== 'island');
+    const nearOnes = cands.filter((c) => c.kind !== 'far' && c.kind !== 'island' && c.kind !== 'plane');
     const use = nearOnes.length ? nearOnes : cands;
     const pts = [[here.lat, here.lng], ...use.map((c) => [P[c.i].lat, P[c.i].lng])];
     const b = L.latLngBounds(pts);

@@ -1,8 +1,8 @@
 // 旅の計算（サーバーと画面とテストの3つが同じものを読む）
 //   距離・方角・次の行き先の候補の選び方・乗り物の言い方
-import { PREFS } from './prefs.js?v=0.1.1';
+import { PREFS } from './prefs.js?v=0.1.2';
 
-export const VERSION = '0.1.1';
+export const VERSION = '0.1.2';
 
 export const T = {
   STAY_SEC: 25, // 1つの町にいる時間（投票の時間）。手元は .dev.vars の STAY_SEC で短くできる
@@ -10,12 +10,16 @@ export const T = {
   MOVE_MS: 4000, // 次の町へ動くアニメの時間（このあいだも次の投票はできる）
   RECENT_N: 40, // 最近行った町（候補から外す）
   NEAR_POOL: 12, // 近くの町の候補を選ぶもと（近い順）
+  MAX_KM: 150, // 飛行機以外の1回の移動の上限（上限の中に町が足りない島だけ、行き止まりにしないためにこえてよい）
   NEAR_MAX_KM: 120, // 「近く」とみなす上限（これより遠いのは近くの候補にしない）
-  EXTRA_CHANCE: 0.5, // 4つ目の候補（遠出・島へ）が出る確率
+  EXTRA_CHANCE: 0.5, // 4つ目の候補（遠出・島へ・飛行機）が出る確率
   ISLAND_CHANCE: 0.35, // 4つ目が出るとき、島が近くにあれば島にする確率
+  PLANE_CHANCE: 0.4, // 4つ目が出るとき、空港の近くの町なら飛行機にする確率
+  AIRPORT_KM: 30, // 空港の「近くの町」（ここから飛行機に乗れる・飛行機で着く）
+  PLANE_MIN_KM: 150, // 飛行機の行き先の空港は、出発の空港からこれより遠いもの（= MAX_KM）
   FAR_MIN_KM: 80,
-  FAR_MAX_KM: 300,
-  ISLAND_MAX_KM: 300,
+  FAR_MAX_KM: 150, // = MAX_KM
+  ISLAND_MAX_KM: 150, // = MAX_KM
   DIARY_N: 120, // 画面に送る日記の件数（最近のぶん）
   START_CODE: '13102', // スタート: 東京都中央区（日本橋）
   VOTES_PER_IP: 20, // 1つの回線から1回の投票で数える端末の数（家族・学校・スマホの回線の共有（CGNAT）で数台〜数十台ある）
@@ -103,8 +107,9 @@ export function travelMode(from, to, kind, km) {
   const pair = [from.main, to.main].sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b)).join('|');
   if (kind === 'far') {
     // 新幹線が通っているのは本州・九州・北海道（青函トンネル）。四国は特急、四国と九州のあいだは船
+    //   同じ島の中は100km以上で新幹線（1回の移動は150kmまでなので）
     const rail = (m) => m === '本州' || m === '九州' || m === '北海道';
-    const bullet = from.main === to.main ? km >= 150 && (from.main === '本州' || from.main === '九州') : rail(from.main) && rail(to.main);
+    const bullet = from.main === to.main ? km >= 100 && (from.main === '本州' || from.main === '九州') : rail(from.main) && rail(to.main);
     if (bullet) return { icon: '🚄', label: '新幹線で' };
     if (pair === '四国|九州') return { icon: '⛴', label: 'フェリーで' };
     return { icon: '🚃', label: '特急で' };
@@ -160,9 +165,50 @@ export function spreadPick(pool, k, rng, taken = []) {
   return best;
 }
 
-// 今いる町 cur から、次の行き先の候補（近くの3つ＋ときどき遠出か島）を選ぶ
-//   recent: 最近行った町の番号の Set（外す）・visited: 行ったことのある町の判定（遠出は行ったことのない町を先に）
-export function pickCandidates(P, cur, { recent = new Set(), visited = () => false, rng = Math.random, extraChance = T.EXTRA_CHANCE } = {}) {
+// ---------- 空港と飛行機 ----------
+
+// 空港ごとの「近くの町」: 空港から AIRPORT_KM 以内で、空港にいちばん近い町と同じ group の町（海の向こうの島の町を混ぜない）
+//   1つもなければ、いちばん近い町1つ。list は data/airports.json（[{ iata, name, short, lat, lng }]）
+//   → { list: 空港（towns つき）, from: 町の番号 → 乗れる空港（近くの町に入っている空港のうち、いちばん近いもの） }
+export function buildAirports(P, list) {
+  const airports = list.map((a) => {
+    const near = P.map((p) => ({ i: p.i, km: distKm(a, p) })).sort((x, y) => x.km - y.km);
+    const g = P[near[0].i].group;
+    let towns = near.filter((x) => x.km <= T.AIRPORT_KM && P[x.i].group === g).map((x) => x.i);
+    if (!towns.length) towns = [near[0].i];
+    return { iata: a.iata, name: a.name, short: a.short, lat: a.lat, lng: a.lng, towns };
+  });
+  const best = new Map();
+  for (const ap of airports) {
+    for (const i of ap.towns) {
+      const d = distKm(ap, P[i]);
+      if (!best.has(i) || d < best.get(i).d) best.set(i, { ap, d });
+    }
+  }
+  return { list: airports, from: new Map([...best].map(([i, x]) => [i, x.ap])) };
+}
+
+// 飛行機の候補: 出発の空港 ap から PLANE_MIN_KM より遠い空港へ
+//   近くに「行ったことがなく最近でもない町」がある空港を先に（なければ全部から）くじで1つ。
+//   町はその空港の近くの町から、最近の町を外し、行ったことのない町を先にくじで1つ
+function planePick(P, here, ap, air, used, recent, visited, rng) {
+  const ok = (i) => i !== here.i && !used.has(i) && !recent.has(i);
+  const dests = air.list.filter((b) => b !== ap && distKm(ap, b) > T.PLANE_MIN_KM && b.towns.some(ok));
+  const fresh = dests.filter((b) => b.towns.some((i) => ok(i) && !visited(i)));
+  const pool = fresh.length ? fresh : dests;
+  if (!pool.length) return null;
+  const to = pool[Math.floor(rng() * pool.length)];
+  const towns = to.towns.filter(ok);
+  const unseen = towns.filter((i) => !visited(i));
+  const from = unseen.length ? unseen : towns;
+  const i = from[Math.floor(rng() * from.length)];
+  return { i, km: distKm(here, P[i]), brg: bearing(here, P[i]), kind: 'plane', via: `${ap.short}→${to.short}` };
+}
+
+// 今いる町 cur から、次の行き先の候補（近くの3つ＋ときどき遠出か島か飛行機）を選ぶ
+//   recent: 最近行った町の番号の Set（外す）・visited: 行ったことのある町の判定（遠出・飛行機は行ったことのない町を先に）
+//   air: buildAirports の結果（なければ飛行機は出さない）
+export function pickCandidates(P, cur, { recent = new Set(), visited = () => false, rng = Math.random, extraChance = T.EXTRA_CHANCE, air = null } = {}) {
   const here = P[cur];
   const withInfo = (p) => ({ i: p.i, km: distKm(here, p), brg: bearing(here, p) });
   let all = [];
@@ -174,14 +220,14 @@ export function pickCandidates(P, cur, { recent = new Set(), visited = () => fal
   // 近くの3つ: 同じ陸続き（同じ島）から
   const same = all.filter((c) => P[c.i].group === here.group && c.km <= T.NEAR_MAX_KM).slice(0, T.NEAR_POOL);
   const near = spreadPick(same, 3, rng).map((c) => ({ ...c, kind: 'near' }));
-  // 島で町が足りない → 海をわたった先の近い町で埋める
+  // 島で町が足りない → 海をわたった先の近い町で埋める（まずは上限 MAX_KM の中から）
   if (near.length < 3) {
     const used = new Set(near.map((c) => c.i));
-    const sea = all.filter((c) => !used.has(c.i) && P[c.i].group !== here.group).slice(0, 8);
+    const sea = all.filter((c) => !used.has(c.i) && P[c.i].group !== here.group && c.km <= T.MAX_KM).slice(0, 8);
     const fill = spreadPick(sea, 3 - near.length, rng, near.map((c) => c.brg));
     near.push(...fill.map((c) => ({ ...c, kind: 'sea' })));
   }
-  // それでも足りない（本土で近くが最近の町ばかり）→ 近い順で埋める
+  // それでも足りない（本土で近くが最近の町ばかり・上限の中に町がない小笠原や大東など）→ 近い順で埋める（上限をこえてよい。行き止まりにしないため）
   if (near.length < 3) {
     const used = new Set(near.map((c) => c.i));
     for (const c of all) {
@@ -191,11 +237,13 @@ export function pickCandidates(P, cur, { recent = new Set(), visited = () => fal
   }
   const out = near;
 
-  // 4つ目: 遠出か島へ
+  // 4つ目: 飛行機（空港の近くの町から）か、島へか、遠出
   if (rng() < extraChance) {
     const used = new Set(out.map((c) => c.i));
     let extra = null;
-    if (here.group === '本土' && rng() < T.ISLAND_CHANCE) {
+    const ap = air?.from.get(cur);
+    if (ap && rng() < T.PLANE_CHANCE) extra = planePick(P, here, ap, air, used, recent, visited, rng);
+    if (!extra && here.group === '本土' && rng() < T.ISLAND_CHANCE) {
       const isl = all.filter((c) => !used.has(c.i) && P[c.i].group !== here.group && c.km <= T.ISLAND_MAX_KM).slice(0, 5);
       if (isl.length) extra = { ...isl[Math.floor(rng() * isl.length)], kind: 'island' };
     }
@@ -208,10 +256,11 @@ export function pickCandidates(P, cur, { recent = new Set(), visited = () => fal
     if (extra) out.push(extra);
   }
 
-  // 画面に出す形（近くの候補は北から時計回りの順。遠出・島はいちばん最後）
+  // 画面に出す形（近くの候補は北から時計回りの順。遠出・島・飛行機はいちばん最後）
   const nearOnes = out.filter((c) => c.kind === 'near' || c.kind === 'sea').sort((a, b) => a.brg - b.brg);
-  const extras = out.filter((c) => c.kind === 'far' || c.kind === 'island');
+  const extras = out.filter((c) => c.kind === 'far' || c.kind === 'island' || c.kind === 'plane');
   return [...nearOnes, ...extras].map((c) => {
+    if (c.kind === 'plane') return { i: c.i, km: Math.round(c.km), dir: dirName(c.brg), brg: Math.round(c.brg), kind: c.kind, icon: '✈', mode: '飛行機で', via: c.via };
     const m = travelMode(here, P[c.i], c.kind, c.km);
     return { i: c.i, km: Math.round(c.km), dir: dirName(c.brg), brg: Math.round(c.brg), kind: c.kind, icon: m.icon, mode: m.label };
   });
