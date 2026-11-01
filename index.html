@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ツギドコ（仮）｜みんなの投票で行き先を決める日本の旅</title>
+<meta name="description" content="1台のバスが日本の市区町村をめぐる旅。次の行き先は、見ているみんなの投票で決まります。着いた町の写真と説明つき。登録なし・無料。">
+<meta property="og:title" content="ツギドコ（仮）｜みんなの投票で行き先を決める日本の旅">
+<meta property="og:description" content="1台のバスが日本の市区町村をめぐる旅。次の行き先は、みんなの投票で決まります。">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://9qu1.com/tsugidoko/">
+<meta property="og:image" content="https://9qu1.com/tsugidoko/og.png">
+<link rel="canonical" href="https://9qu1.com/tsugidoko/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#fff7ec">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700;800&display=swap">
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css?v=1.9.4">
+<link rel="stylesheet" href="style.css?v=0.1.0">
+</head>
+<body>
+<div id="app">
+  <div id="mapwrap">
+    <div id="map" role="region" aria-label="日本の地図"></div>
+    <header id="top">
+      <div class="brand"><img src="favicon.svg" alt="" width="26" height="26"><b>ツギドコ</b><small>仮</small></div>
+      <div class="live" id="live" title="いま参加している人"><span class="dotlive" aria-hidden="true"></span><b id="viewers">0</b><span>人が参加中</span></div>
+    </header>
+    <div id="movebanner" role="status" aria-live="polite" hidden></div>
+  </div>
+
+  <main id="sheet">
+    <section id="town" class="card town">
+      <div class="photo" id="photo">
+        <img id="photo-img" alt="" decoding="async" hidden>
+        <div class="postcard" id="postcard" aria-hidden="true"><span id="postcard-kanji"></span></div>
+        <div class="photo-text">
+          <div class="badges" id="town-badges"></div>
+          <small id="town-pref">　</small>
+          <h1 id="town-name">よみこみ中…</h1>
+        </div>
+      </div>
+    </section>
+
+    <section id="vote" class="card vote">
+      <div class="vote-head">
+        <h2>次どこ？</h2>
+        <div class="timer" id="timer-box"><span id="timer">--</span><span class="tbar"><i id="timer-bar"></i></span></div>
+      </div>
+      <div id="cands" class="cands"></div>
+      <p class="hint" id="vote-hint">1人1票。締め切りまで何度でも変えられます</p>
+    </section>
+
+    <section id="town-body" class="card town-body">
+      <p id="town-desc" class="desc"></p>
+      <p id="town-credit" class="credit"></p>
+    </section>
+
+    <section id="stats" class="card stats">
+      <div class="stat"><small>旅の距離</small><b><span id="st-km">0</span><i>km</i></b></div>
+      <div class="stat"><small>めぐった市区町村</small><b><span id="st-towns">0</span><i>/ <span id="st-all">1,741</span></i></b></div>
+      <div class="stat"><small>都道府県</small><b><span id="st-prefs">0</span><i>/ 47</i></b></div>
+    </section>
+
+    <section id="stamps" class="card">
+      <h2>都道府県スタンプ</h2>
+      <div id="stampgrid" class="stampgrid" role="list"></div>
+      <p class="hint">行った県に色がつきます。マスを押すと、その県でめぐった町の数が出ます</p>
+    </section>
+
+    <section id="diary" class="card">
+      <h2>旅の日記</h2>
+      <ol id="diarylist" class="diarylist"></ol>
+    </section>
+
+    <section id="share" class="card share">
+      <h2>旅を知らせる</h2>
+      <p id="share-text" class="share-text"></p>
+      <div class="share-row">
+        <a id="share-x" class="btn x" href="https://x.com/intent/post" rel="noopener">X で投稿</a>
+        <button id="share-dev" class="btn" type="button">共有・コピー</button>
+      </div>
+    </section>
+
+    <section id="about" class="card about">
+      <h2>ツギドコについて</h2>
+      <p>1台のバスが、日本の市区町村（1,741）をめぐります。1つの町にいるのは数十秒。そのあいだに、見ている人みんなで「次どこ？」を投票して、いちばん票が多い町へ進みます。同じ票数や、だれも投票しなかったときは、くじで決めます。</p>
+      <p>だれも見ていないあいだは、旅はお休みします。だれかが開くと、その町から再開します。</p>
+      <p>配信で流すときは、住所の最後に <code>?stream=1</code> を付けると、横長の大きな画面になります。</p>
+      <h3>出典</h3>
+      <ul class="credits">
+        <li>地図: <a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院（地理院タイル・淡色地図）</a></li>
+        <li>市区町村の名前・位置・人口・代表画像: <a href="https://www.wikidata.org/" target="_blank" rel="noopener">Wikidata</a>（CC0）<span id="data-date"></span></li>
+        <li>町の説明: <a href="https://ja.wikipedia.org/" target="_blank" rel="noopener">日本語版 Wikipedia</a>（CC BY-SA 4.0）。町ごとに記事へのリンクがあります</li>
+        <li>写真: <a href="https://commons.wikimedia.org/" target="_blank" rel="noopener">Wikimedia Commons</a>（作者とライセンスは写真ごと）</li>
+        <li>地図の部品: <a href="https://leafletjs.com/" target="_blank" rel="noopener">Leaflet</a>（BSD-2-Clause）</li>
+      </ul>
+      <p class="hint">距離は町の代表地点どうしの直線の距離です。乗り物の名前は、距離と場所から決めた「旅の気分」です。</p>
+    </section>
+  </main>
+
+  <aside id="join" class="join" hidden>
+    <div id="qr" class="qr" aria-hidden="true"></div>
+    <div class="join-text">
+      <small>スマホで投票に参加</small>
+      <b id="join-url"></b>
+    </div>
+  </aside>
+
+  <div id="netband" role="status" aria-live="polite" hidden></div>
+  <div id="toast" role="status" aria-live="polite" hidden></div>
+</div>
+<script src="vendor/leaflet/leaflet.js?v=1.9.4"></script>
+<script type="module" src="js/app.js?v=0.1.0"></script>
+</body>
+</html>
