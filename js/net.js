@@ -6,8 +6,8 @@
 //   ・12秒ごとに ping（サーバーは起きずに自動で返す）。30秒なにも届かなければ張りなおす
 //   ・切断が1.5秒続いたら帯を出す（すぐ戻る切断ではちらつかせない）
 //   ・送るのは emit()（send という名前はボタンの変数とぶつかるので使わない）
-import { VERSION } from './shared/travel.js?v=0.1.0';
-import { WS_URL } from './config.js?v=0.1.0';
+import { VERSION } from './shared/travel.js?v=0.1.1';
+import { WS_URL } from './config.js?v=0.1.1';
 
 const ACK_MS = 6000;
 

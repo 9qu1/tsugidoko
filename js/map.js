@@ -1,7 +1,7 @@
 // 地図（Leaflet ＋ 国土地理院の淡色地図）
 //   旅人のバス・通ってきた線・行ったことのある町の点・次の候補の札をのせる
-import { TILE_URL, TILE_CREDIT } from './config.js?v=0.1.0';
-import { PREF_COLOR } from './shared/prefs.js?v=0.1.0';
+import { TILE_URL, TILE_CREDIT } from './config.js?v=0.1.1';
+import { PREF_COLOR } from './shared/prefs.js?v=0.1.1';
 
 const L = window.L;
 export const CAND_COLORS = ['#ef5a3c', '#2f7fe0', '#1f9d63', '#9254de'];

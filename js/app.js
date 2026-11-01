@@ -1,10 +1,11 @@
 // ツギドコの画面
 //   ふつうの画面（スマホが主・PC は横ならび）と、配信の画面（?stream=1・16:9 の大きい表示）
-import { VERSION, T, loadPlaces, bitsFromB64, bitGet, bitSet, bitsNew, shareText } from './shared/travel.js?v=0.1.0';
-import { PREFS, PREF_SHORT, PREF_COLOR, PREF_GRID, GRID_W, GRID_H } from './shared/prefs.js?v=0.1.0';
-import { TripMap, CAND_COLORS } from './map.js?v=0.1.0';
-import { Net } from './net.js?v=0.1.0';
-import { SHARE_URL, IS_PROD_PAGE } from './config.js?v=0.1.0';
+import { VERSION, T, loadPlaces, bitsFromB64, bitGet, bitSet, bitsNew, shareText, HASHTAG } from './shared/travel.js?v=0.1.1';
+import { PREFS, PREF_SHORT, PREF_COLOR, PREF_GRID, GRID_W, GRID_H } from './shared/prefs.js?v=0.1.1';
+import { TripMap, CAND_COLORS } from './map.js?v=0.1.1';
+import { Net } from './net.js?v=0.1.1';
+import { SHARE_URL, IS_PROD_PAGE } from './config.js?v=0.1.1';
+import { makeShareCard } from './share-card.js?v=0.1.1';
 
 // ---------- 小さな道具 ----------
 
@@ -353,39 +354,164 @@ function addDiary(d) {
 
 // ---------- 共有 ----------
 
+// スマホ（指で操作する端末）か。X を同じタブで開く（アプリに渡す）かに使う
+const MOBILE = matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0 || /iPhone|iPad|Android/i.test(navigator.userAgent);
+const SITE_LABEL = '9qu1.com/tsugidoko/'; // 共有の画像に書く住所（手元で作っても本番の住所）
+
 function shareTextNow() {
   const p = S.P[S.cur];
-  return p ? shareText(p, S.km) : 'みんなの投票で行き先を決める日本の旅 #ツギドコ';
+  return p ? shareText(p, S.km) : `みんなの投票で行き先を決める日本の旅 ${HASHTAG}`;
 }
 
 function renderShare() {
   $('#share-text').textContent = shareTextNow();
 }
 
+const xIntent = (text) => `https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(SHARE_URL)}`;
+// スマホは同じタブ（X のアプリに渡す）・PC は新しいタブ
+function xTarget(a) {
+  if (MOBILE) a.removeAttribute('target');
+  else { a.target = '_blank'; a.rel = 'noopener'; }
+}
+
 // X は <a> のまま開かせる（スクリプトで window.open すると iPhone でアプリに渡らない）
 function armShareLink() {
   const a = $('#share-x');
-  const mobile = matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0 || /iPhone|iPad|Android/i.test(navigator.userAgent);
-  const set = () => {
-    a.href = `https://x.com/intent/post?text=${encodeURIComponent(shareTextNow())}&url=${encodeURIComponent(SHARE_URL)}`;
-    if (mobile) a.removeAttribute('target'); else a.target = '_blank';
-  };
+  const set = () => { a.href = xIntent(shareTextNow()); xTarget(a); };
   a.addEventListener('pointerdown', set);
   a.addEventListener('click', set);
   set();
 }
 
-async function shareDevice() {
-  const text = shareTextNow();
-  if (navigator.share) {
-    try { await navigator.share({ title: 'ツギドコ', text, url: SHARE_URL }); return; } catch (e) { if (e?.name === 'AbortError') return; }
+// 共有の画像に描く中身（いまの町と旅の数字だけ。Wikimedia の写真や Wikipedia の文は入れない）
+function cardInfo() {
+  const p = S.ready ? S.P[S.cur] : null;
+  const base = { hashtag: HASHTAG, site: SITE_LABEL, land: S.P };
+  if (!p) return { ...base, town: null };
+  return {
+    ...base,
+    town: { name: p.name, pref: p.prefName, lat: p.lat, lng: p.lng },
+    lead: 'みんなの旅は今',
+    nth: S.stops > 1 ? `${num(S.stops)}番目の町` : '旅のはじまり',
+    stats: [
+      { label: '旅の距離', value: bigKm(S.km), unit: 'km' },
+      { label: 'めぐった市区町村', value: num(S.nVisited), unit: `/ ${num(S.P.length)}` },
+      { label: '都道府県', value: String(S.prefN.filter((n) => n > 0).length), unit: '/ 47' },
+    ],
+    trail: S.diary.map((d) => S.P[d.i]).filter(Boolean),
+    dots: S.P.filter((q) => bitGet(S.bits, q.i)).map((q) => ({ lat: q.lat, lng: q.lng, color: PREF_COLOR[q.pref] })),
+  };
+}
+
+// 共有の窓（2回タップ: 1回目で窓を開いて画像を作り、2回目で保存する）
+//   画像は窓を開いたときに作って blob URL にし、「画像を保存」の <a download> に先に入れておく（押してから作らない）
+//   blob URL は窓を閉じたとき・作りなおしたときに捨てる（画像そのものは同じ町のあいだ取っておく）
+const SB = { key: '', job: null, blob: null, name: '', url: '', failed: false, text: '', back: null };
+
+function openShare() {
+  if (S.stream) return;
+  // 文は開いたときのもの（画像と同じ町。開いているあいだにバスが動いても変えない）
+  SB.text = shareTextNow();
+  $('#sb-text').textContent = SB.text;
+  const xa = $('#sb-x');
+  xa.href = xIntent(SB.text);
+  xTarget(xa);
+  SB.back = document.activeElement;
+  $('#sharebox').hidden = false;
+  document.addEventListener('keydown', onShareKey);
+  $('#sb-card').focus({ preventScroll: true });
+  prepareCard();
+}
+
+function closeShare() {
+  if ($('#sharebox').hidden) return;
+  $('#sharebox').hidden = true;
+  document.removeEventListener('keydown', onShareKey);
+  dropUrl();
+  SB.back?.focus?.({ preventScroll: true });
+}
+
+// blob URL を捨てて、見本と保存のリンクからも外す
+function dropUrl() {
+  if (SB.url) URL.revokeObjectURL(SB.url);
+  SB.url = '';
+  $('#sb-img').removeAttribute('src');
+  $('#sb-save').removeAttribute('href');
+}
+
+// Esc で閉じる・Tab は窓の中を回る
+function onShareKey(e) {
+  if (e.key === 'Escape') { e.preventDefault(); closeShare(); return; }
+  if (e.key !== 'Tab') return;
+  const items = [...$('#sb-card').querySelectorAll('button, a[href]')].filter((x) => !x.hidden && !x.disabled);
+  if (!items.length) return;
+  const first = items[0], last = items[items.length - 1];
+  if (e.shiftKey && (document.activeElement === first || document.activeElement === $('#sb-card'))) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+}
+
+// 同じ町・同じ記録なら、前に作った画像を使い回す
+function prepareCard() {
+  const key = `${S.ready}|${S.seq}|${S.cur}|${S.km}`;
+  if (SB.key !== key) {
+    SB.key = key;
+    SB.blob = null;
+    SB.failed = false;
+    dropUrl();
+    const code = S.ready ? S.P[S.cur]?.code : '';
+    SB.name = code ? `tsugidoko-${code}.png` : 'tsugidoko.png'; // ファイル名は英数字だけ
+    SB.job = makeShareCard(cardInfo()).then(({ blob }) => {
+      if (SB.key === key) SB.blob = blob;
+    }).catch(() => {
+      if (SB.key !== key) return;
+      SB.failed = true;
+      SB.key = ''; // 次に開いたときに作りなおす
+    });
   }
+  paintShare();
+  SB.job.then(paintShare);
+}
+
+// 画像のできぐあいに合わせて、見本と「画像を保存」を出しわける
+function paintShare() {
+  if ($('#sharebox').hidden) return; // 閉じたあとにできあがったら、次に開いたときに URL を作る
+  if (SB.blob && !SB.url) SB.url = URL.createObjectURL(SB.blob);
+  const ready = !!SB.url;
+  const img = $('#sb-img');
+  if (ready && img.getAttribute('src') !== SB.url) img.src = SB.url;
+  img.alt = ready ? `共有する画像: ${SB.text}` : '';
+  img.hidden = !ready;
+  const wait = $('#sb-wait');
+  wait.hidden = ready;
+  wait.textContent = SB.failed ? '画像を作れませんでした（文とURLは共有できます）' : '画像を作っています…';
+  // 保存はスマホでも PC でも、ふつうのリンク（<a download>）として押させる
+  const save = $('#sb-save');
+  save.hidden = SB.failed;
+  save.textContent = ready ? '画像を保存' : '画像を用意中…';
+  if (ready) {
+    save.href = SB.url;
+    save.download = SB.name;
+    save.removeAttribute('aria-disabled');
+  } else {
+    save.removeAttribute('href');
+    save.setAttribute('aria-disabled', 'true');
+  }
+  $('#sb-note').hidden = save.hidden;
+}
+
+async function copyShare() {
   try {
-    await navigator.clipboard.writeText(`${text} ${SHARE_URL}`);
+    await navigator.clipboard.writeText(`${SB.text} ${SHARE_URL}`);
     toast('📋 文と住所をコピーしました');
   } catch {
     toast('コピーできませんでした', 'error');
   }
+}
+
+function armShareBox() {
+  $('#share-dev').addEventListener('click', openShare);
+  $('#sb-copy').addEventListener('click', copyShare);
+  for (const x of document.querySelectorAll('#sharebox [data-close]')) x.addEventListener('click', closeShare);
 }
 
 // ---------- 届いたもの ----------
@@ -604,7 +730,7 @@ async function main() {
   map = new TripMap($('#map'), { stream: STREAM });
   buildStamps();
   armShareLink();
-  $('#share-dev').addEventListener('click', shareDevice);
+  armShareBox();
   setInterval(tick, 250);
   addEventListener('resize', () => map.invalidate());
   net = new Net({
@@ -626,7 +752,7 @@ async function main() {
   });
   net.connect();
   // テストと調べもの用（中を見るだけ）
-  window.tg = { S, map, net, castVote, redraw: () => { updateCounts(); tick(); }, version: VERSION, prod: IS_PROD_PAGE };
+  window.tg = { S, map, net, castVote, redraw: () => { updateCounts(); tick(); }, version: VERSION, prod: IS_PROD_PAGE, cardInfo, makeShareCard, openShare, share: SB };
 }
 
 main();

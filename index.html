@@ -20,7 +20,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700;800&display=swap">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css?v=1.9.4">
-<link rel="stylesheet" href="style.css?v=0.1.0">
+<link rel="stylesheet" href="style.css?v=0.1.1">
 </head>
 <body>
 <div id="app">
@@ -111,10 +111,30 @@
     </div>
   </aside>
 
+  <!-- 共有の窓（「共有・コピー」で開く。開いたときに結果の画像を作る） -->
+  <div id="sharebox" class="sharebox" hidden>
+    <div class="sharebox-bg" data-close></div>
+    <section id="sb-card" class="sharebox-card" role="dialog" aria-modal="true" aria-labelledby="sb-title" tabindex="-1">
+      <h2 id="sb-title">旅を知らせる</h2>
+      <div class="sharebox-preview">
+        <img id="sb-img" alt="" hidden>
+        <span id="sb-wait" class="sharebox-wait">画像を作っています…</span>
+      </div>
+      <p id="sb-text" class="share-text"></p>
+      <div class="sharebox-btns">
+        <a id="sb-save" class="btn" download="tsugidoko.png" aria-disabled="true">画像を保存</a>
+        <p id="sb-note" class="sharebox-note">保存した画像は投稿に添付できます</p>
+        <a id="sb-x" class="btn x" href="https://x.com/intent/post" rel="noopener">X で投稿</a>
+        <button id="sb-copy" class="btn sub" type="button">文とURLをコピー</button>
+        <button id="sb-close" class="btn ghost" type="button" data-close>閉じる</button>
+      </div>
+    </section>
+  </div>
+
   <div id="netband" role="status" aria-live="polite" hidden></div>
   <div id="toast" role="status" aria-live="polite" hidden></div>
 </div>
 <script src="vendor/leaflet/leaflet.js?v=1.9.4"></script>
-<script type="module" src="js/app.js?v=0.1.0"></script>
+<script type="module" src="js/app.js?v=0.1.1"></script>
 </body>
 </html>

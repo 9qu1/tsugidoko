@@ -1,8 +1,8 @@
 // 旅の計算（サーバーと画面とテストの3つが同じものを読む）
 //   距離・方角・次の行き先の候補の選び方・乗り物の言い方
-import { PREFS } from './prefs.js?v=0.1.0';
+import { PREFS } from './prefs.js?v=0.1.1';
 
-export const VERSION = '0.1.0';
+export const VERSION = '0.1.1';
 
 export const T = {
   STAY_SEC: 25, // 1つの町にいる時間（投票の時間）。手元は .dev.vars の STAY_SEC で短くできる
@@ -254,7 +254,8 @@ export function bitsFromB64(s, n) {
 export const placeLabel = (p) => `${p.prefName}${p.name}`;
 export const prefOf = (k) => PREFS[k];
 
-// 共有の文（X の投稿画面・端末の共有）
+// 共有の文（X の投稿画面・端末の共有）と、共有の画像にも入れるハッシュタグ
+export const HASHTAG = '#ツギドコ';
 export function shareText(p, km) {
-  return `みんなの旅は今 ${p.prefName}${p.name}。ここまで ${Math.round(km).toLocaleString('ja-JP')}km。次どこ行く？ #ツギドコ`;
+  return `みんなの旅は今 ${p.prefName}${p.name}。ここまで ${Math.round(km).toLocaleString('ja-JP')}km。次どこ行く？ ${HASHTAG}`;
 }
